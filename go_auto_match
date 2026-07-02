@@ -1,0 +1,739 @@
+// =====================================================================
+// 테니스 교류전 대진표 자동 생성기 v6
+// =====================================================================
+// 사용법:
+//   1. 구글 스프레드시트 > 확장 프로그램 > Apps Script 에 전체 붙여넣기
+//   2. CONFIG 섹션만 상황에 맞게 수정
+//   3. 상단 메뉴 "🎾 테니스 대진표" > "대진표 생성" 클릭
+// =====================================================================
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  CONFIG  – 여기만 수정하세요                                      ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+const SOURCE_SHEET_NAME = "260618_인앤아웃_월례회";
+const OUTPUT_SHEET_NAME = "대진표";
+
+const HOME_TABLE_START_ROW = 9;
+const HOME_TABLE_START_COL = 3;
+const HOME_COL_OFFSETS     = { name: 0, gender: 1, skill: 2 };
+
+const AWAY_TABLE_START_ROW = 9;
+const AWAY_TABLE_START_COL = 10;
+const AWAY_COL_OFFSETS     = { name: 0, gender: 1, skill: 2 };
+
+const MAX_ROWS = 25;
+
+// 출력 레이아웃
+// 열 구성(코트 1개): Time | Home1 | Home2 | ScoreL | ScoreR | Away1 | Away2  → 7열
+const COURT_COLS     = 7;
+const COL_GAP        = 1;
+const COURTS_PER_ROW = 2;
+const OUT_START_ROW  = 6;
+const OUT_LEFT_COL   = 2;
+
+// ── 서식 색상 ──────────────────────────────────────────────────────────
+const COLOR = {
+  TYPE_MIXED   : "#fef9c3",  // 혼복 (연노랑)
+  TYPE_MENS    : "#dbeafe",  // 남복 (연파랑)
+  TYPE_WOMENS  : "#fce7f3",  // 여복 (연분홍)
+  DUP_PARTNER  : "#fed7aa",  // ⚠ 파트너 중복 (주황) – 수동 조정 권장
+  DUP_OPPONENT : "#fde68a",  // ⚠ 상대 중복 (진노랑) – 가능하면 조정
+  EMPTY_SLOT   : "#f3f4f6",  // 빈 슬롯
+  SCORE_BG     : "#ffffff",  // 스코어 셀
+  SCORE_DUP_BG : "#fde68a",  // 스코어 셀 – 상대 중복 강조
+  HDR_COURT    : "#1a73e8",  // Court 헤더
+  HDR_COL      : "#c9d8f5",  // 컬럼 헤더
+  STAT_HDR     : "#34a853",  // 통계 헤더
+  SUM_HDR      : "#f59e0b",  // 요약 헤더
+  WARN_BG      : "#fce8e6",  // 최소게임 미달
+  OK_BG        : "#e6f4ea",  // 정상
+};
+
+// =====================================================================
+//  메뉴
+// =====================================================================
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu("🎾 테니스 대진표")
+    .addItem("대진표 생성", "showInputDialog")
+    .addItem("대진표 초기화", "clearOutputSheet")
+    .addToUi();
+}
+
+// =====================================================================
+//  입력 다이얼로그
+//  기본값: 코트5 / 경기40 / 최소5 / 혼복20 / 남복15 / 여복5
+// =====================================================================
+function showInputDialog() {
+  const html = HtmlService.createHtmlOutput(`
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Noto Sans KR',Arial,sans-serif;font-size:13px;background:#f1f3f4;color:#202124;padding:16px}
+h2{font-size:17px;color:#1a73e8;margin-bottom:4px}
+.sub{font-size:11px;color:#80868b;margin-bottom:12px}
+.card{background:#fff;border-radius:8px;padding:12px 14px;margin-bottom:10px;box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.card-title{font-size:11px;font-weight:700;color:#1a73e8;letter-spacing:.6px;text-transform:uppercase;margin-bottom:10px}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+label{display:block;font-size:11px;font-weight:600;color:#5f6368;margin-bottom:3px;margin-top:8px}
+label:first-of-type{margin-top:0}
+input[type=number],input[type=text],input[type=time]{width:100%;padding:6px 8px;border:1px solid #dadce0;border-radius:5px;font-size:13px}
+input:focus{outline:none;border-color:#1a73e8}
+.type-box{border:1px solid #e8eaed;border-radius:6px;padding:8px;text-align:center}
+.type-icon{font-size:16px}.type-name{font-size:10px;font-weight:700;color:#5f6368;margin:2px 0 4px}
+#partnerList{margin-top:8px}
+.pr{display:grid;grid-template-columns:1fr 1fr auto;gap:6px;align-items:center;margin-bottom:6px}
+.pr input{margin:0}
+.del{background:none;border:none;cursor:pointer;color:#ea4335;font-size:16px;padding:0 4px}
+#addBtn{font-size:12px;color:#1a73e8;background:none;border:1px dashed #1a73e8;border-radius:5px;padding:4px 10px;cursor:pointer;width:100%;margin-top:2px}
+#addBtn:hover{background:#e8f0fe}
+.warn{font-size:11px;color:#ea4335;margin-top:5px;min-height:16px}
+#genBtn{margin-top:6px;width:100%;padding:10px;background:#1a73e8;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer}
+#genBtn:hover:not(:disabled){background:#1558b0}
+#genBtn:disabled{background:#9aa0a6;cursor:not-allowed}
+</style></head><body>
+<h2>🎾 대진표 생성 설정</h2>
+<div class="sub">값을 채우고 생성 버튼을 누르세요</div>
+<div class="card">
+  <div class="card-title">기본 설정</div>
+  <div class="g4">
+    <div><label>코트 수</label><input type="number" id="courts" value="5" min="1" max="10"></div>
+    <div><label>총 경기 수</label><input type="number" id="total" value="40" min="1" oninput="chk()"></div>
+    <div><label>인당 최소</label><input type="number" id="minG" value="5" min="1"></div>
+    <div><label>슬롯(분)</label><input type="number" id="slot" value="30" min="10" max="120"></div>
+  </div>
+  <div class="g2" style="margin-top:10px">
+    <div><label>시작 시간</label><input type="time" id="st" value="14:00"></div>
+    <div><label>종료 시간</label><input type="time" id="et" value="18:00"></div>
+  </div>
+</div>
+<div class="card">
+  <div class="card-title">종목별 경기 수 (합계 = 총 경기 수)</div>
+  <div class="g3">
+    <div class="type-box"><div class="type-icon">🟡</div><div class="type-name">혼복</div>
+      <input type="number" id="mixed" value="20" min="0" oninput="chk()"></div>
+    <div class="type-box"><div class="type-icon">🔵</div><div class="type-name">남복</div>
+      <input type="number" id="mens" value="15" min="0" oninput="chk()"></div>
+    <div class="type-box"><div class="type-icon">🩷</div><div class="type-name">여복</div>
+      <input type="number" id="wom" value="5" min="0" oninput="chk()"></div>
+  </div>
+  <div class="warn" id="warn"></div>
+</div>
+<div class="card">
+  <div class="card-title">희망 파트너 매칭 (선택)</div>
+  <div id="partnerList"></div>
+  <button id="addBtn" onclick="addRow()">+ 파트너 쌍 추가</button>
+</div>
+<button id="genBtn" onclick="go()">대진표 생성</button>
+<script>
+function tot(){return +document.getElementById('total').value||0;}
+function sum(){return(+document.getElementById('mixed').value||0)+(+document.getElementById('mens').value||0)+(+document.getElementById('wom').value||0);}
+function chk(){
+  const ok=sum()===tot();
+  document.getElementById('warn').textContent=ok?'':'⚠ 합계('+sum()+')가 총 경기 수('+tot()+')와 다릅니다';
+  document.getElementById('genBtn').disabled=!ok;
+}
+chk();
+let pid=0;
+function addRow(){
+  const id=pid++;const d=document.createElement('div');
+  d.className='pr';d.id='pr_'+id;
+  d.innerHTML='<input type="text" placeholder="선수 A" id="pA_'+id+'"><input type="text" placeholder="선수 B" id="pB_'+id+'"><button class="del" onclick="delR('+id+')">✕</button>';
+  document.getElementById('partnerList').appendChild(d);
+}
+function delR(id){const e=document.getElementById('pr_'+id);if(e)e.remove();}
+function go(){
+  const pairs=[];
+  document.querySelectorAll('.pr').forEach(r=>{
+    const n=r.id.replace('pr_','');
+    const a=document.getElementById('pA_'+n).value.trim();
+    const b=document.getElementById('pB_'+n).value.trim();
+    if(a&&b)pairs.push([a,b]);
+  });
+  const p={courts:+document.getElementById('courts').value,total:tot(),minG:+document.getElementById('minG').value,
+    slot:+document.getElementById('slot').value,st:document.getElementById('st').value,et:document.getElementById('et').value,
+    mixed:+document.getElementById('mixed').value||0,mens:+document.getElementById('mens').value||0,
+    wom:+document.getElementById('wom').value||0,pairs};
+  document.getElementById('genBtn').disabled=true;
+  document.getElementById('genBtn').textContent='생성 중…';
+  google.script.run
+    .withSuccessHandler(m=>{alert(m);google.script.host.close();})
+    .withFailureHandler(e=>{alert('❌ '+e.message);document.getElementById('genBtn').disabled=false;document.getElementById('genBtn').textContent='대진표 생성';})
+    .generateDraw(p);
+}
+</script></body></html>
+`).setWidth(440).setHeight(580).setTitle("대진표 생성 설정");
+  SpreadsheetApp.getUi().showModalDialog(html, "대진표 생성 설정");
+}
+
+// =====================================================================
+//  선수 데이터 로드
+// =====================================================================
+function loadPlayers(sheet) {
+  const players = [];
+  function read(startRow, startCol, off, team) {
+    for (let r = startRow; r < startRow + MAX_ROWS; r++) {
+      const name = sheet.getRange(r, startCol + off.name).getValue();
+      if (!name) break;
+      players.push({
+        name: String(name).trim(),
+        gender: String(sheet.getRange(r, startCol + off.gender).getValue()).trim(),
+        skill: parseFloat(sheet.getRange(r, startCol + off.skill).getValue()) || 0,
+        team,
+        games: 0, mixedG: 0, mensG: 0, womG: 0,
+        consecutive: 0,
+        partners: new Set(),
+        opponents: new Set()
+      });
+    }
+  }
+  read(HOME_TABLE_START_ROW, HOME_TABLE_START_COL, HOME_COL_OFFSETS, "Home");
+  read(AWAY_TABLE_START_ROW, AWAY_TABLE_START_COL, AWAY_COL_OFFSETS, "Away");
+  return players;
+}
+
+function playerLabel(p) { return p.name + " (" + p.skill + ")"; }
+
+// =====================================================================
+//  시간 슬롯 생성
+// =====================================================================
+function buildSlots(st, et, min) {
+  const slots = [];
+  const [sh, sm] = st.split(":").map(Number);
+  const [eh, em] = et.split(":").map(Number);
+  let cur = sh * 60 + sm;
+  const end = eh * 60 + em;
+  while (cur + min <= end) {
+    slots.push(fmt(cur) + "~" + fmt(cur + min));
+    cur += min;
+  }
+  return slots;
+}
+function fmt(m) {
+  return String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
+}
+
+// =====================================================================
+//  대진표 생성 메인
+// =====================================================================
+function generateDraw(p) {
+  const ss  = SpreadsheetApp.getActiveSpreadsheet();
+  const src = ss.getSheetByName(SOURCE_SHEET_NAME);
+  if (!src) throw new Error('시트 "' + SOURCE_SHEET_NAME + '"를 찾을 수 없습니다.');
+
+  const players = loadPlayers(src);
+  if (players.length < 4) throw new Error("선수가 4명 이상 필요합니다.");
+
+  const prefSet = new Set();
+  (p.pairs || []).forEach(([a, b]) => { prefSet.add(a + "|||" + b); prefSet.add(b + "|||" + a); });
+
+  // ── 팀별 인원 유효성 검사 ─────────────────────────────────────────────
+  const homeP = players.filter(x => x.team === "Home");
+  const awayP = players.filter(x => x.team === "Away");
+  const hM = homeP.filter(x => x.gender === "남").length;
+  const hF = homeP.filter(x => x.gender === "여").length;
+  const aM = awayP.filter(x => x.gender === "남").length;
+  const aF = awayP.filter(x => x.gender === "여").length;
+
+  // 여복은 양팀 합산 여자 수가 각 팀 2명 이상이어야 함
+  if (p.mixed > 0) {
+    if (hM < 1 || hF < 1) throw new Error("Home팀 혼복: 남자·여자 각 1명 이상 필요");
+    if (aM < 1 || aF < 1) throw new Error("Away팀 혼복: 남자·여자 각 1명 이상 필요");
+  }
+  if (p.mens > 0) {
+    if (hM < 2) throw new Error("Home팀 남복: 남자 2명 이상 필요");
+    if (aM < 2) throw new Error("Away팀 남복: 남자 2명 이상 필요");
+  }
+  if (p.wom > 0) {
+    if (hF < 2) throw new Error("Home팀 여복: 여자 2명 이상 필요");
+    if (aF < 2) throw new Error("Away팀 여복: 여자 2명 이상 필요");
+  }
+
+  const slots = buildSlots(p.st, p.et, p.slot);
+  if (slots.length === 0) throw new Error("시작/종료 시간 설정이 잘못되었습니다.");
+
+  const maxRounds   = slots.length;
+  const maxPossible = maxRounds * p.courts;
+  if (p.total > maxPossible) {
+    throw new Error(
+      "총 경기 수(" + p.total + ")가 슬롯(" + slots.length + ") × 코트(" + p.courts + ") = " +
+      maxPossible + "를 초과합니다. 시간 범위를 늘리거나 경기 수를 줄여주세요."
+    );
+  }
+
+  // ── 쿼터 ──────────────────────────────────────────────────────────────
+  const quota = { "혼복": p.mixed, "남복": p.mens, "여복": p.wom };
+
+  // ── 스케줄 생성 ──────────────────────────────────────────────────────
+  // 매 라운드(슬롯)마다 코트 수만큼 매치를 찾음
+  // 각 매치 탐색은 3단계 fallback:
+  //   1단계: 파트너·상대 중복 모두 회피 (소프트 제약 완전 적용)
+  //   2단계: 상대 중복만 회피 (파트너 중복 허용)
+  //   3단계: 모든 소프트 제약 해제 (중복 불가피한 경우 강제 배정)
+  // → 여자가 4명뿐인 여복은 어차피 중복이 불가피하므로 3단계에서 배정됨
+
+  const schedule  = [];
+  let   totalDone = 0;
+
+  for (let roundIdx = 0; roundIdx < maxRounds; roundIdx++) {
+    if (totalDone >= p.total) { schedule.push([]); continue; }
+
+    const roundMatches  = [];
+    const usedThisRound = new Set();
+
+    for (let court = 0; court < p.courts; court++) {
+      if (totalDone + roundMatches.length >= p.total) break;
+
+      // 3단계 fallback
+      let match = findMatch(players, usedThisRound, quota, prefSet, p.minG, 0);  // 완전 회피
+      if (!match) match = findMatch(players, usedThisRound, quota, prefSet, p.minG, 1); // 파트너중복 허용
+      if (!match) match = findMatch(players, usedThisRound, quota, prefSet, p.minG, 2); // 전체 허용
+      if (!match) break;
+
+      roundMatches.push(match);
+      quota[match.type]--;
+      [match.t1p1, match.t1p2, match.t2p1, match.t2p2].forEach(x => usedThisRound.add(x.name));
+    }
+
+    if (roundMatches.length > 0) {
+      commitRound(roundMatches, players);
+      totalDone += roundMatches.length;
+    }
+    schedule.push(roundMatches); // 빈 라운드도 push → 슬롯과 1:1 유지
+  }
+
+  if (totalDone === 0) throw new Error("조건을 만족하는 대진을 구성할 수 없습니다. 선수 수나 설정을 확인해주세요.");
+
+  writeOutput(ss, schedule, players, p, slots, quota);
+
+  const rem = Object.entries(quota).filter(([, v]) => v > 0).map(([k, v]) => k + " " + v + "경기");
+  let msg = "✅ 완료! 총 " + totalDone + "경기 생성";
+  if (rem.length) msg += "\n⚠ 미배정: " + rem.join(", ");
+  return msg;
+}
+
+// =====================================================================
+//  매치 탐색
+//  mode 0: 파트너·상대 중복 모두 회피
+//  mode 1: 파트너 중복 허용 (상대 중복은 감점으로 처리)
+//  mode 2: 모든 소프트 제약 해제
+// =====================================================================
+function findMatch(players, usedThisRound, quota, prefSet, minG, mode) {
+  // 하드①③④: 이번 라운드 미배정 + 연속 3라운드 미만
+  const avail = players.filter(x => !usedThisRound.has(x.name) && x.consecutive < 3);
+
+  // 남은 쿼터 있는 종목, 쿼터 많은 순 → 종목 분배 균형
+  const types = ["혼복", "남복", "여복"]
+    .filter(t => quota[t] > 0)
+    .sort((a, b) => quota[b] - quota[a]);
+
+  for (const type of types) {
+    const m = tryType(avail, type, prefSet, minG, mode);
+    if (m) return m;
+  }
+  return null;
+}
+
+function tryType(avail, type, prefSet, minG, mode) {
+  // 하드①: 팀별 분리
+  const home = avail.filter(x => x.team === "Home");
+  const away = avail.filter(x => x.team === "Away");
+
+  // 하드②: 성별 조합
+  let gc;
+  if      (type === "남복") gc = [["남", "남"], ["남", "남"]];
+  else if (type === "여복") gc = [["여", "여"], ["여", "여"]];
+  else                      gc = [["남", "여"], ["남", "여"]];
+
+  const p1List = buildPairs(home, gc[0], prefSet, mode);
+  const p2List = buildPairs(away, gc[1], prefSet, mode);
+  if (!p1List.length || !p2List.length) return null;
+
+  let best = null, bestScore = -Infinity;
+  const lim = 60;
+
+  for (const p1 of p1List.slice(0, lim)) {
+    for (const p2 of p2List.slice(0, lim)) {
+      const sc = calcScore(p1, p2, type, minG, mode);
+      if (sc > bestScore) {
+        bestScore = sc;
+        best = {
+          type,
+          t1p1: p1[0], t1p2: p1[1],
+          t2p1: p2[0], t2p2: p2[1],
+          // 서식 표시용 중복 플래그 (출력에서 색상 강조)
+          dupPartner1 : p1[0].partners.has(p1[1].name),
+          dupPartner2 : p2[0].partners.has(p2[1].name),
+          dupOpponent : hasDupOpponent(p1, p2),
+        };
+      }
+    }
+  }
+  return best;
+}
+
+function hasDupOpponent(p1, p2) {
+  return [p1[0], p1[1]].some(x => [p2[0], p2[1]].some(o => x.opponents.has(o.name)));
+}
+
+// ── 페어 후보 목록 ───────────────────────────────────────────────────
+function buildPairs(teamAvail, gCombo, prefSet, mode) {
+  const [g1, g2] = gCombo;
+  const pairs = [];
+
+  if (g1 !== g2) {
+    // 혼복: 남+여
+    const males   = teamAvail.filter(x => x.gender === "남");
+    const females = teamAvail.filter(x => x.gender === "여");
+    for (const m of males) {
+      for (const f of females) {
+        // mode 0: 파트너 중복 제외
+        if (mode === 0 && m.partners.has(f.name)) continue;
+        pairs.push([m, f]);
+      }
+    }
+  } else {
+    for (let i = 0; i < teamAvail.length; i++) {
+      if (teamAvail[i].gender !== g1) continue;
+      for (let j = i + 1; j < teamAvail.length; j++) {
+        if (teamAvail[j].gender !== g2) continue;
+        if (mode === 0 && teamAvail[i].partners.has(teamAvail[j].name)) continue;
+        pairs.push([teamAvail[i], teamAvail[j]]);
+      }
+    }
+  }
+
+  // 정렬: 희망파트너 최우선 → 파트너 신규 페어 우선 → 게임 수 적은 순
+  pairs.sort((a, b) => {
+    const aP  = prefSet.has(a[0].name + "|||" + a[1].name) ? 4 : 0;
+    const bP  = prefSet.has(b[0].name + "|||" + b[1].name) ? 4 : 0;
+    const aNew = !a[0].partners.has(a[1].name) ? 2 : 0;
+    const bNew = !b[0].partners.has(b[1].name) ? 2 : 0;
+    const aG  = a[0].games + a[1].games;
+    const bG  = b[0].games + b[1].games;
+    // 점수 높을수록 앞
+    const scoreDiff = (bP + bNew) - (aP + aNew);
+    return scoreDiff !== 0 ? scoreDiff : aG - bG;
+  });
+
+  return pairs;
+}
+
+// ── 매치 점수 ────────────────────────────────────────────────────────
+function calcScore(p1, p2, type, minG, mode) {
+  let s = 0;
+  const all = [p1[0], p1[1], p2[0], p2[1]];
+
+  // 최소 게임 미달자 강한 보너스 (우선 출전)
+  all.forEach(x => { if (x.games < minG) s += 40; });
+
+  // 구력 밸런스
+  const avg1 = (p1[0].skill + p1[1].skill) / 2;
+  const avg2 = (p2[0].skill + p2[1].skill) / 2;
+  s -= Math.abs(avg1 - avg2) * 10;
+
+  // 총 게임 균등
+  s -= all.reduce((acc, x) => acc + x.games, 0) * 2;
+
+  // 종목별 게임 균등
+  const tk = type === "혼복" ? "mixedG" : type === "남복" ? "mensG" : "womG";
+  s -= all.reduce((acc, x) => acc + x[tk], 0) * 4;
+
+  // 연속 경기 감점
+  all.forEach(x => { s -= x.consecutive * 5; });
+
+  // 소프트⑤⑥: mode에 따라 감점 적용
+  // mode 0: 상대·파트너 중복 모두 감점 (단, buildPairs에서 파트너 중복 이미 제외됨)
+  // mode 1: 상대 중복만 감점 (파트너 중복은 이미 허용)
+  // mode 2: 감점 없음 (중복 불가피)
+  if (mode <= 1) {
+    [p1[0], p1[1]].forEach(x =>
+      [p2[0], p2[1]].forEach(o => { if (x.opponents.has(o.name)) s -= 15; })
+    );
+  }
+  if (mode === 0) {
+    // 파트너 중복 감점 (mode 0에서 buildPairs가 이미 걸렀지만 혼복 남+여 조합은 그냥 감점만)
+    if (p1[0].partners.has(p1[1].name)) s -= 20;
+    if (p2[0].partners.has(p2[1].name)) s -= 20;
+  }
+
+  return s;
+}
+
+// ── 라운드 확정 ──────────────────────────────────────────────────────
+function commitRound(roundMatches, players) {
+  const playing = new Set();
+  roundMatches.forEach(m =>
+    [m.t1p1, m.t1p2, m.t2p1, m.t2p2].forEach(x => playing.add(x.name))
+  );
+
+  roundMatches.forEach(m => {
+    const { t1p1, t1p2, t2p1, t2p2, type } = m;
+    const tk = type === "혼복" ? "mixedG" : type === "남복" ? "mensG" : "womG";
+
+    t1p1.partners.add(t1p2.name); t1p2.partners.add(t1p1.name);
+    t2p1.partners.add(t2p2.name); t2p2.partners.add(t2p1.name);
+
+    [t1p1, t1p2].forEach(x => { x.opponents.add(t2p1.name); x.opponents.add(t2p2.name); });
+    [t2p1, t2p2].forEach(x => { x.opponents.add(t1p1.name); x.opponents.add(t1p2.name); });
+
+    [t1p1, t1p2, t2p1, t2p2].forEach(x => { x.games++; x[tk]++; });
+  });
+
+  players.forEach(x => {
+    if (playing.has(x.name)) x.consecutive++;
+    else                     x.consecutive = 0;
+  });
+}
+
+// =====================================================================
+//  출력 – Court별 타임슬롯 테이블
+// =====================================================================
+function writeOutput(ss, schedule, players, p, slots, quota) {
+  let out = ss.getSheetByName(OUTPUT_SHEET_NAME);
+  if (out) { out.clear(); } else { out = ss.insertSheet(OUTPUT_SHEET_NAME); }
+
+  const totalDone = schedule.flat().length;
+  const LEGEND_COL = OUT_LEFT_COL + COURTS_PER_ROW * (COURT_COLS + COL_GAP) + 1;
+
+  // ── 타이틀 ──
+  out.getRange(2, OUT_LEFT_COL)
+     .setValue("🎾 테니스 교류전 대진표")
+     .setFontSize(16).setFontWeight("bold").setFontColor(COLOR.HDR_COURT);
+  out.getRange(3, OUT_LEFT_COL)
+     .setValue(
+       "총 " + totalDone + "경기  |  코트 " + p.courts + "개  |  인당 최소 " + p.minG + "게임  |  " +
+       "🟡혼복 " + p.mixed + "  🔵남복 " + p.mens + "  🩷여복 " + p.wom + "  |  " +
+       p.st + "~" + p.et + " (" + p.slot + "분/슬롯)"
+     ).setFontColor("#5f6368");
+
+  // ── 서식 범례 (우측 상단) ──────────────────────────────────────────
+  out.getRange(2, LEGEND_COL)
+     .setValue("📌 서식 범례").setFontWeight("bold").setFontSize(11).setFontColor("#333");
+
+  const legendItems = [
+    [COLOR.TYPE_MIXED,   "🟡 혼복"],
+    [COLOR.TYPE_MENS,    "🔵 남복"],
+    [COLOR.TYPE_WOMENS,  "🩷 여복"],
+    [COLOR.DUP_PARTNER,  "⚠ 파트너 중복 → 수동 조정 권장"],
+    [COLOR.SCORE_DUP_BG, "⚠ 상대 중복 (Score 셀)"],
+    [COLOR.WARN_BG,      "❗ 최소 게임 수 미달 선수"],
+  ];
+  legendItems.forEach(([bg, lbl], i) => {
+    const r = 3 + i;
+    const cell = out.getRange(r, LEGEND_COL);
+    cell.setValue(lbl).setBackground(bg).setFontSize(10)
+        .setBorder(true, true, true, true, false, false, "#ccc", SpreadsheetApp.BorderStyle.SOLID);
+    out.setColumnWidth(LEGEND_COL, 230);
+  });
+
+  // ── courtSched[courtIdx][slotIdx] = match | null ──────────────────
+  const courtSched = [];
+  for (let c = 0; c < p.courts; c++) {
+    courtSched.push(schedule.map(round => round[c] || null));
+  }
+
+  const tblH   = 2 + slots.length;
+  let   curRow = OUT_START_ROW;
+
+  // ── Court 테이블 배치 ──────────────────────────────────────────────
+  for (let grpStart = 0; grpStart < p.courts; grpStart += COURTS_PER_ROW) {
+    const grpEnd = Math.min(grpStart + COURTS_PER_ROW, p.courts);
+    for (let ci = grpStart; ci < grpEnd; ci++) {
+      const startCol = OUT_LEFT_COL + (ci - grpStart) * (COURT_COLS + COL_GAP);
+      drawCourt(out, curRow, startCol, ci + 1, slots, courtSched[ci]);
+    }
+    curRow += tblH + 3;
+  }
+
+  // ── 열 너비 ──────────────────────────────────────────────────────
+  // 열 구성: Time | Home1 | Home2 | ScoreL | ScoreR | Away1 | Away2 | [gap]
+  for (let c = 0; c < COURTS_PER_ROW; c++) {
+    const base = OUT_LEFT_COL + c * (COURT_COLS + COL_GAP);
+    out.setColumnWidth(base,     72);   // Time
+    out.setColumnWidth(base + 1, 105);  // Home1
+    out.setColumnWidth(base + 2, 105);  // Home2
+    out.setColumnWidth(base + 3, 32);   // ScoreL
+    out.setColumnWidth(base + 4, 32);   // ScoreR
+    out.setColumnWidth(base + 5, 105);  // Away1
+    out.setColumnWidth(base + 6, 105);  // Away2
+    if (COL_GAP > 0) out.setColumnWidth(base + 7, 16);
+  }
+
+  // ── 선수별 통계 ──────────────────────────────────────────────────
+  curRow += 1;
+  out.getRange(curRow, OUT_LEFT_COL)
+     .setValue("📊 선수별 경기 통계").setFontSize(13).setFontWeight("bold");
+  curRow++;
+
+  const sh = ["팀", "이름", "성별", "구력", "총 경기", "혼복", "남복", "여복", "파트너 수", "만난 상대 수"];
+  out.getRange(curRow, OUT_LEFT_COL, 1, sh.length).setValues([sh])
+     .setBackground(COLOR.STAT_HDR).setFontColor("#fff").setFontWeight("bold").setHorizontalAlignment("center");
+  curRow++;
+
+  players.forEach(pl => {
+    const rng = out.getRange(curRow, OUT_LEFT_COL, 1, 10);
+    rng.setValues([[pl.team, pl.name, pl.gender, pl.skill,
+                    pl.games, pl.mixedG, pl.mensG, pl.womG,
+                    pl.partners.size, pl.opponents.size]])
+       .setBackground(pl.games < p.minG ? COLOR.WARN_BG : COLOR.OK_BG);
+    // 최소 게임 미달: 굵은 빨간 테두리
+    if (pl.games < p.minG) {
+      rng.setBorder(true, true, true, true, false, false, "#ea4335", SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+    }
+    curRow++;
+  });
+
+  // ── 종목별 요약 ──────────────────────────────────────────────────
+  curRow += 2;
+  out.getRange(curRow, OUT_LEFT_COL)
+     .setValue("📋 종목별 요약").setFontSize(13).setFontWeight("bold");
+  curRow++;
+
+  out.getRange(curRow, OUT_LEFT_COL, 1, 4).setValues([["종목", "계획", "실제", "달성률"]])
+     .setBackground(COLOR.SUM_HDR).setFontColor("#fff").setFontWeight("bold").setHorizontalAlignment("center");
+  curRow++;
+
+  const allM = schedule.flat();
+  [["🟡 혼복", p.mixed, allM.filter(m => m.type === "혼복").length],
+   ["🔵 남복", p.mens,  allM.filter(m => m.type === "남복").length],
+   ["🩷 여복", p.wom,   allM.filter(m => m.type === "여복").length]
+  ].forEach(([lbl, plan, actual]) => {
+    const rate = plan > 0 ? Math.round(actual / plan * 100) + "%" : "-";
+    out.getRange(curRow, OUT_LEFT_COL, 1, 4).setValues([[lbl, plan, actual, rate]])
+       .setBackground(actual >= plan ? COLOR.OK_BG : actual > 0 ? "#fef9c3" : COLOR.WARN_BG);
+    curRow++;
+  });
+
+  ss.setActiveSheet(out);
+}
+
+// =====================================================================
+//  단일 Court 테이블 그리기
+//
+//  열 구성 (C 기준):
+//   C+0 = Time
+//   C+1 = Home 선수1
+//   C+2 = Home 선수2
+//   C+3 = Score Left  (홈팀 득점 입력)
+//   C+4 = Score Right (어웨이팀 득점 입력)
+//   C+5 = Away 선수1
+//   C+6 = Away 선수2
+//
+//  서식 의미:
+//   · 종목색 배경 (노랑/파랑/분홍): 혼복/남복/여복 구분
+//   · 주황 배경 + 주황 테두리    : 파트너 중복 → 수동 조정 권장
+//   · 진노랑 Score 셀           : 상대 중복 → 가능하면 조정
+//   · Score 셀 노트              : 종목 + 중복 여부 기록
+// =====================================================================
+function drawCourt(sheet, startRow, C, courtNum, slots, matchSlots) {
+  // 행1: Court 제목
+  sheet.getRange(startRow, C, 1, COURT_COLS).merge()
+    .setValue("Court " + courtNum)
+    .setBackground(COLOR.HDR_COURT).setFontColor("#fff")
+    .setFontWeight("bold").setHorizontalAlignment("center").setFontSize(11);
+
+  // 행2: 컬럼 헤더
+  //  Time(1) | Players-Home(병합2) | Score(병합2) | Players-Away(병합2)
+  sheet.getRange(startRow + 1, C)
+       .setValue("Time")
+       .setBackground(COLOR.HDR_COL).setFontWeight("bold").setHorizontalAlignment("center").setFontSize(10);
+  sheet.getRange(startRow + 1, C + 1, 1, 2).merge()
+       .setValue("Players - Home")
+       .setBackground(COLOR.HDR_COL).setFontWeight("bold").setHorizontalAlignment("center").setFontSize(10);
+  sheet.getRange(startRow + 1, C + 3, 1, 2).merge()
+       .setValue("Score")
+       .setBackground(COLOR.HDR_COL).setFontWeight("bold").setHorizontalAlignment("center").setFontSize(10);
+  sheet.getRange(startRow + 1, C + 5, 1, 2).merge()
+       .setValue("Players - Away")
+       .setBackground(COLOR.HDR_COL).setFontWeight("bold").setHorizontalAlignment("center").setFontSize(10);
+
+  // 행3~: 슬롯 데이터
+  slots.forEach((slot, ri) => {
+    const r     = startRow + 2 + ri;
+    const match = matchSlots[ri] || null;
+
+    // Time
+    sheet.getRange(r, C)
+         .setValue(slot)
+         .setBackground("#f8f9fa").setHorizontalAlignment("center").setFontSize(10);
+
+    if (match) {
+      // 종목별 기본 배경색
+      const typeBg = match.type === "남복" ? COLOR.TYPE_MENS
+                   : match.type === "여복" ? COLOR.TYPE_WOMENS
+                   : COLOR.TYPE_MIXED;
+
+      // 파트너 중복 시 해당 팀 배경 주황으로 덮어씌움
+      const bgH1 = match.dupPartner1 ? COLOR.DUP_PARTNER : typeBg;
+      const bgH2 = match.dupPartner1 ? COLOR.DUP_PARTNER : typeBg;
+      const bgA1 = match.dupPartner2 ? COLOR.DUP_PARTNER : typeBg;
+      const bgA2 = match.dupPartner2 ? COLOR.DUP_PARTNER : typeBg;
+
+      // 상대 중복 시 Score 셀 배경 진노랑
+      const scoreBg = match.dupOpponent ? COLOR.SCORE_DUP_BG : COLOR.SCORE_BG;
+
+      // 종목 아이콘 (ScoreL 셀에 표시 – 수동 수정 시 종목 구분 기준)
+      const typeIcon = match.type === "남복" ? "🔵" : match.type === "여복" ? "🩷" : "🟡";
+
+      sheet.getRange(r, C + 1).setValue(playerLabel(match.t1p1))
+           .setBackground(bgH1).setHorizontalAlignment("center").setFontSize(10);
+      sheet.getRange(r, C + 2).setValue(playerLabel(match.t1p2))
+           .setBackground(bgH2).setHorizontalAlignment("center").setFontSize(10);
+      sheet.getRange(r, C + 3).setValue(typeIcon)           // 종목 아이콘 → 수동 수정 시 참고
+           .setBackground(scoreBg).setHorizontalAlignment("center").setFontSize(10);
+      sheet.getRange(r, C + 4).setValue("")                 // 득점 입력용 빈칸
+           .setBackground(scoreBg).setHorizontalAlignment("center").setFontSize(10);
+      sheet.getRange(r, C + 5).setValue(playerLabel(match.t2p1))
+           .setBackground(bgA1).setHorizontalAlignment("center").setFontSize(10);
+      sheet.getRange(r, C + 6).setValue(playerLabel(match.t2p2))
+           .setBackground(bgA2).setHorizontalAlignment("center").setFontSize(10);
+
+      // Score 우측 셀 노트: 종목 + 중복 정보 (수동 조정 가이드)
+      const note = match.type
+        + (match.dupPartner1 ? "  ⚠ Home 파트너 중복" : "")
+        + (match.dupPartner2 ? "  ⚠ Away 파트너 중복" : "")
+        + (match.dupOpponent ? "  ⚠ 상대 중복" : "");
+      sheet.getRange(r, C + 4).setNote(note);
+
+      // 파트너 중복 행: 주황 굵은 테두리 (조정 필요 표시)
+      if (match.dupPartner1 || match.dupPartner2) {
+        sheet.getRange(r, C, 1, COURT_COLS)
+             .setBorder(true, true, true, true, false, false,
+                        "#f97316", SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+      }
+
+    } else {
+      // 빈 슬롯
+      sheet.getRange(r, C + 1, 1, 2).setValues([["-", "-"]])
+           .setBackground(COLOR.EMPTY_SLOT).setHorizontalAlignment("center").setFontSize(10);
+      sheet.getRange(r, C + 3, 1, 2).setValues([["", ""]])
+           .setBackground(COLOR.EMPTY_SLOT);
+      sheet.getRange(r, C + 5, 1, 2).setValues([["-", "-"]])
+           .setBackground(COLOR.EMPTY_SLOT).setHorizontalAlignment("center").setFontSize(10);
+    }
+
+    // 행 내부 구분선 (연회색)
+    sheet.getRange(r, C, 1, COURT_COLS)
+         .setBorder(true, true, true, true, true, false,
+                    "#dadce0", SpreadsheetApp.BorderStyle.SOLID);
+  });
+
+  // 테이블 전체 외곽 강조선
+  sheet.getRange(startRow, C, 2 + slots.length, COURT_COLS)
+       .setBorder(true, true, true, true, null, null,
+                  COLOR.HDR_COURT, SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+}
+
+// =====================================================================
+//  초기화
+// =====================================================================
+function clearOutputSheet() {
+  const ss  = SpreadsheetApp.getActiveSpreadsheet();
+  const out = ss.getSheetByName(OUTPUT_SHEET_NAME);
+  if (out) { out.clear(); SpreadsheetApp.getUi().alert("대진표 시트가 초기화되었습니다."); }
+  else     { SpreadsheetApp.getUi().alert("초기화할 대진표 시트가 없습니다."); }
+}
