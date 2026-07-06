@@ -12,6 +12,7 @@
     --clay:#ffcd1f; --clay-dim:#d9ad12; --court:#2f6df0; --court-bright:#4f9bff;
     --net:#f2f6ff; --txt:#eaf0ff; --txt-dim:#8f9fcb;
     --gold:#ffcd1f; --kakao:#ffd83d; --samsung:#5fa8ff;
+    --women:#ff6fb0; --mixed:#b278ff;
     --shadow:0 8px 28px rgba(0,0,0,.5);
   }
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -45,8 +46,7 @@
   .tab{flex:1;padding:11px 6px;border:none;background:transparent;color:var(--txt-dim);font-family:'Pretendard';font-size:14px;font-weight:700;border-radius:10px;cursor:pointer;transition:.2s;letter-spacing:-.01em}
   .tab.active{background:var(--clay);color:#10182f;box-shadow:0 4px 12px rgba(255,205,31,.35)}
 
-  .chips{display:flex;gap:7px;overflow-x:auto;padding:2px 0 14px;scrollbar-width:none}
-  .chips::-webkit-scrollbar{display:none}
+  .chips{display:flex;flex-wrap:wrap;gap:7px;padding:2px 0 14px}
   .chip{flex:0 0 auto;padding:8px 15px;border-radius:999px;font-size:13px;font-weight:600;background:var(--card);border:1px solid var(--line);color:var(--txt-dim);cursor:pointer;transition:.18s;white-space:nowrap}
   .chip.active{background:var(--court);border-color:var(--court-bright);color:#fff}
 
@@ -56,8 +56,16 @@
   .search-row input:focus{border-color:var(--court-bright);background:var(--card2)}
   .search-row input::placeholder{color:#5e6fa0}
   .hint{font-size:12px;color:var(--txt-dim);margin-top:9px;padding-left:4px;line-height:1.5}
-  .name-sugg{display:flex;flex-wrap:wrap;gap:6px;margin-top:11px}
-  .name-sugg .chip{padding:6px 12px;font-size:12px}
+
+  /* 이름 추천 - 팀별 섹션 구분 */
+  .name-sugg{margin-top:11px}
+  .sugg-group{margin-bottom:12px}
+  .sugg-group:last-child{margin-bottom:0}
+  .sugg-label{font-size:11px;font-weight:800;letter-spacing:.05em;margin-bottom:7px;padding-left:2px}
+  .sugg-label.s{color:var(--samsung)}
+  .sugg-label.k{color:var(--kakao)}
+  .sugg-row{display:flex;flex-wrap:wrap;gap:6px}
+  .sugg-row .chip{padding:6px 12px;font-size:12px}
 
   .psum{background:linear-gradient(135deg,var(--card2),var(--card));border:1px solid var(--line);border-left:4px solid var(--gold);border-radius:14px;padding:16px 18px;margin-bottom:16px;animation:pop .35s ease}
   .psum .nm{font-size:20px;font-weight:800;color:var(--net)}
@@ -76,9 +84,19 @@
   .card{background:var(--card);border:1px solid var(--line);border-radius:15px;padding:14px 15px;margin-bottom:10px;box-shadow:var(--shadow);position:relative;overflow:hidden;transition:.2s;animation:pop .3s ease backwards}
   .card.mine{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold),var(--shadow)}
   .card.mine::before{content:"MY MATCH";position:absolute;top:10px;right:-30px;transform:rotate(38deg);background:var(--gold);color:#10182f;font-size:9px;font-weight:800;letter-spacing:.1em;padding:3px 32px}
+
+  /* 남복/여복/혼복 구분 - 카드 배경색으로 표시 (좌측 라인 + 배지는 보조 표시) */
+  .card.type-M{background:linear-gradient(120deg, rgba(95,168,255,.16), var(--card) 60%);border-left:3px solid var(--samsung)}
+  .card.type-W{background:linear-gradient(120deg, rgba(255,111,176,.16), var(--card) 60%);border-left:3px solid var(--women)}
+  .card.type-X{background:linear-gradient(120deg, rgba(178,120,255,.16), var(--card) 60%);border-left:3px solid var(--mixed)}
+
   .card-top{display:flex;align-items:center;gap:9px;margin-bottom:12px}
   .court-badge{font-family:'Bebas Neue';font-size:15px;letter-spacing:.06em;background:var(--court);color:#fff;padding:3px 11px;border-radius:7px}
   .card-time{font-size:12px;color:var(--txt-dim);font-weight:600}
+  .type-badge{font-size:10px;font-weight:800;padding:3px 9px;border-radius:7px;letter-spacing:.02em}
+  .type-badge.tm{background:rgba(95,168,255,.16);color:var(--samsung)}
+  .type-badge.tw{background:rgba(255,111,176,.16);color:var(--women)}
+  .type-badge.tx{background:rgba(178,120,255,.16);color:var(--mixed)}
   .matchup{display:flex;align-items:center;gap:10px}
   .side{flex:1;min-width:0}
   .side .lbl{font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;margin-bottom:5px}
@@ -102,7 +120,7 @@
   .rlose{background:rgba(143,159,203,.16);color:var(--txt-dim)}
   .rdraw{background:rgba(95,168,255,.16);color:var(--samsung)}
   .done-tag{margin-left:auto;font-size:10px;font-weight:700;color:#46d28a;background:rgba(70,210,138,.12);padding:3px 8px;border-radius:6px}
-  .card.done{border-color:rgba(255,205,31,.28)}
+  .card.done{box-shadow:0 0 0 1px rgba(255,205,31,.22),var(--shadow)}
 
   /* 점수 입력 UI */
   .entry{margin-top:12px;padding-top:11px;border-top:1px dashed var(--line)}
@@ -119,8 +137,6 @@
   .entry-msg.err{color:#ff8d8d}
 
   /* 정산 화면 */
-  .settle-btn{display:block;width:100%;background:linear-gradient(135deg,var(--clay),var(--clay-dim));color:#10182f;border:none;font-family:'Pretendard';font-size:16px;font-weight:800;padding:15px;border-radius:14px;cursor:pointer;margin:4px 0 10px;box-shadow:0 6px 18px rgba(255,205,31,.28);transition:.15s}
-  .settle-btn:active{transform:scale(.985)} .settle-btn:disabled{opacity:.6;pointer-events:none}
   .settle-head{text-align:center;font-size:12px;color:var(--txt-dim);margin:14px 0 12px}
   .settle-head b{color:var(--gold)}
   .tcards{display:flex;align-items:stretch;gap:10px;margin-bottom:14px}
@@ -178,7 +194,7 @@
   </div>
 
   <div id="view-schedule">
-    <div class="chips" id="courtChips"></div>
+    <div class="chips" id="timeChips"></div>
     <div id="scheduleList">
       <div class="loader"><div class="spinner"></div>대진표를 불러오는 중…</div>
     </div>
@@ -189,16 +205,21 @@
       <div class="search-row">
         <input id="nameInput" type="text" placeholder="본인 이름 입력 (예: 최영근, 노아)" autocomplete="off">
       </div>
-      <div class="hint">한글 이름 또는 닉네임 일부만 입력해도 됩니다. 아래에서 바로 선택할 수도 있어요.</div>
+      <div class="hint">한글 이름 또는 닉네임 일부만 입력해도 됩니다. 아래 팀별 목록에서 바로 선택할 수도 있어요.</div>
       <div class="name-sugg" id="nameSugg"></div>
     </div>
     <div id="meResult"></div>
   </div>
 
   <div id="view-settle" class="hidden">
-    <button class="settle-btn" id="settleBtn" onclick="runSettle()">🏆 정산하기</button>
-    <div class="hint" style="text-align:center">입력된 스코어를 기준으로 회사별 전적과 MVP를 집계합니다.</div>
-    <div id="settleResult"></div>
+    <div class="sync" style="margin-bottom:6px">
+      <span class="live"><span class="ldot"></span>실시간 자동 집계</span>
+      <span id="settleUpdatedAt"></span>
+    </div>
+    <div class="hint" style="text-align:center;margin-bottom:14px">경기 점수가 입력되면 아래 결과가 자동으로 갱신됩니다.</div>
+    <div id="settleResult">
+      <div class="loader"><div class="spinner"></div>전적을 불러오는 중…</div>
+    </div>
   </div>
 
   <footer>
@@ -210,10 +231,16 @@
 
 <script>
 let DATA = null;
-let courtFilter = "all";
+let timeFilter = "all";
 let myName = "";
 let COURTS = [], TIMES = [];
 const roster = { home:new Set(), away:new Set() };
+
+const TYPE_INFO = {
+  M: { label:'남복', cls:'tm' },
+  W: { label:'여복', cls:'tw' },
+  X: { label:'혼복', cls:'tx' }
+};
 
 function disp(p){return p.includes("_") ? p.split("_")[0] : p;}
 function nick(p){return p.includes("_") ? p.split("_")[1] : "";}
@@ -228,9 +255,15 @@ function reload(){
   const btn=document.getElementById("refreshBtn");
   btn.classList.add("spin"); btn.textContent="불러오는 중";
   google.script.run
-    .withSuccessHandler(d=>{ onData(d); btn.classList.remove("spin"); btn.textContent="새로고침"; })
+    .withSuccessHandler(d=>{ onFullData(d); btn.classList.remove("spin"); btn.textContent="새로고침"; })
     .withFailureHandler(e=>{ showError(e); btn.classList.remove("spin"); btn.textContent="새로고침"; })
-    .getTournamentData();
+    .getFullData();
+}
+
+/** 대진표 + 정산 데이터를 함께 받아 화면 전체를 갱신 (정산이 실시간으로 반영되도록) */
+function onFullData(d){
+  onData(d.tournament);
+  renderSettle(d.standings);
 }
 
 function onData(d){
@@ -248,7 +281,7 @@ function onData(d){
   document.getElementById("metaLine").innerHTML = meta.join(" ");
   document.getElementById("updatedAt").textContent = d.updatedAt ? `· ${d.updatedAt} 기준` : "";
 
-  renderCourtChips();
+  renderTimeChips();
   renderSchedule();
   renderNameSugg();
   if(myName) renderMe();
@@ -259,23 +292,25 @@ function showError(e){
     `<div class="empty"><div class="ico">⚠️</div><div class="msg">데이터를 불러오지 못했습니다.<br>${(e&&e.message)||e}</div></div>`;
 }
 
-function renderCourtChips(){
-  const el=document.getElementById("courtChips"); el.innerHTML="";
+/** 코트가 아닌 "시간대"로 스케줄을 필터링할 수 있는 칩 */
+function renderTimeChips(){
+  const el=document.getElementById("timeChips"); el.innerHTML="";
   const mk=(label,val)=>{
     const b=document.createElement("button");
-    b.className="chip"+(courtFilter===val?" active":"");
+    b.className="chip"+(timeFilter===val?" active":"");
     b.textContent=label;
-    b.onclick=()=>{courtFilter=val;renderCourtChips();renderSchedule();};
+    b.onclick=()=>{timeFilter=val;renderTimeChips();renderSchedule();};
     return b;
   };
-  el.appendChild(mk("전체","all"));
-  COURTS.forEach(c=>el.appendChild(mk(c.replace("Court ","코트 "),c)));
+  el.appendChild(mk("전체 시간","all"));
+  TIMES.forEach(t=>el.appendChild(mk(t,t)));
 }
 
 function renderSchedule(){
   const list=document.getElementById("scheduleList"); list.innerHTML="";
   if(!DATA||!DATA.matches.length){ list.innerHTML=`<div class="empty"><div class="ico">🎾</div><div class="msg">표시할 대진이 없습니다.</div></div>`; return; }
-  const data=DATA.matches.filter(m=>courtFilter==="all"||m.court===courtFilter);
+  const data=DATA.matches.filter(m=>timeFilter==="all"||m.time===timeFilter);
+  if(!data.length){ list.innerHTML=`<div class="empty"><div class="ico">🎾</div><div class="msg">해당 시간대에 경기가 없습니다.</div></div>`; return; }
   let n=0;
   TIMES.forEach(t=>{
     const inSlot=data.filter(m=>m.time===t).sort((a,b)=>a.court.localeCompare(b.court,undefined,{numeric:true}));
@@ -289,11 +324,13 @@ function renderSchedule(){
 
 function card(m,i,highlightMine){
   const d=document.createElement("div"); d.className="card"; d.style.animationDelay=(i*0.025)+"s";
+  if(m.type && TYPE_INFO[m.type]) d.classList.add("type-"+m.type);
   const mine = myName && m.home.concat(m.away).some(p=>matchName(p,myName));
   if(highlightMine && mine) d.classList.add("mine");
   const sc = m.score && m.score.played ? m.score : null;
   if(sc) d.classList.add("done");
   const pl=p=>`<div class="player${highlightMine&&matchName(p,myName)?' hl':''}">${full(p)}</div>`;
+  const typeInfo = TYPE_INFO[m.type] || null;
 
   // 중앙: 점수 있으면 스코어, 없으면 VS
   let center;
@@ -326,6 +363,7 @@ function card(m,i,highlightMine){
     <div class="card-top">
       <span class="court-badge">${m.court.replace("Court ","C")}</span>
       <span class="card-time">${m.time}</span>
+      ${typeInfo?`<span class="type-badge ${typeInfo.cls}">${typeInfo.label}</span>`:''}
       ${sc?'<span class="done-tag">경기 종료</span>':''}
     </div>
     <div class="matchup">
@@ -357,23 +395,33 @@ function card(m,i,highlightMine){
     msg.textContent="저장 중…"; msg.className="entry-msg";
     const btn = d.querySelector('.ef-save'); btn.disabled=true;
     google.script.run
-      .withSuccessHandler(newData=>{ DATA=null; onData(newData); })
+      .withSuccessHandler(res=>{ DATA=null; onFullData(res); })
       .withFailureHandler(e=>{ msg.textContent=(e&&e.message)||"저장 실패"; msg.className="entry-msg err"; btn.disabled=false; })
       .saveScore({ row:m.cells.row, awayCol:m.cells.awayCol, homeCol:m.cells.homeCol, away:Number(a), home:Number(h) });
   });
   return d;
 }
 
+/** 참가자 이름 추천을 팀별 섹션으로 구분해서 표시 */
 function renderNameSugg(){
   const el=document.getElementById("nameSugg"); el.innerHTML="";
-  const all=[...roster.home].map(p=>({p,t:"k"})).concat([...roster.away].map(p=>({p,t:"s"})));
-  all.sort((a,b)=>disp(a.p).localeCompare(disp(b.p),"ko"));
-  all.forEach(o=>{
-    const b=document.createElement("button"); b.className="chip";
-    b.textContent=nick(o.p)?`${disp(o.p)}·${nick(o.p)}`:disp(o.p);
-    b.onclick=()=>{document.getElementById("nameInput").value=disp(o.p);myName=disp(o.p);renderMe();};
-    el.appendChild(b);
-  });
+  const buildGroup = (title, set, teamCls) => {
+    const arr=[...set].sort((a,b)=>disp(a).localeCompare(disp(b),"ko"));
+    if(!arr.length) return;
+    const wrap=document.createElement("div"); wrap.className="sugg-group";
+    const label=document.createElement("div"); label.className=`sugg-label ${teamCls}`; label.textContent=title;
+    const row=document.createElement("div"); row.className="sugg-row";
+    arr.forEach(p=>{
+      const b=document.createElement("button"); b.className="chip";
+      b.textContent = nick(p)?`${disp(p)}·${nick(p)}`:disp(p);
+      b.onclick=()=>{document.getElementById("nameInput").value=disp(p);myName=disp(p);renderMe();};
+      row.appendChild(b);
+    });
+    wrap.appendChild(label); wrap.appendChild(row);
+    el.appendChild(wrap);
+  };
+  buildGroup(DATA.awayTeam, roster.away, 's');
+  buildGroup(DATA.homeTeam, roster.home, 'k');
 }
 
 function renderMe(){
@@ -431,22 +479,12 @@ document.querySelectorAll(".tab").forEach(t=>{
 });
 document.getElementById("nameInput").addEventListener("input",e=>{myName=e.target.value;renderMe();});
 
-// ---- 정산 ----
-function runSettle(){
-  const btn=document.getElementById("settleBtn");
-  const box=document.getElementById("settleResult");
-  btn.disabled=true; btn.textContent="집계 중…";
-  box.innerHTML=`<div class="loader"><div class="spinner"></div>전적을 집계하는 중…</div>`;
-  google.script.run
-    .withSuccessHandler(s=>{ renderSettle(s); btn.disabled=false; btn.textContent="🏆 다시 정산하기"; })
-    .withFailureHandler(e=>{ box.innerHTML=`<div class="empty"><div class="ico">⚠️</div><div class="msg">${(e&&e.message)||e}</div></div>`; btn.disabled=false; btn.textContent="🏆 정산하기"; })
-    .getStandings();
-}
-
+// ---- 정산 (실시간: 별도 버튼 없이 reload/저장 시마다 자동 갱신) ----
 function renderSettle(s){
   const box=document.getElementById("settleResult");
+  document.getElementById("settleUpdatedAt").textContent = s.updatedAt ? `· ${s.updatedAt} 기준` : "";
   if(!s.totalPlayed){
-    box.innerHTML=`<div class="empty"><div class="ico">📋</div><div class="msg">아직 입력된 스코어가 없습니다.<br>경기 점수를 입력한 뒤 정산해 주세요.</div></div>`;
+    box.innerHTML=`<div class="empty"><div class="ico">📋</div><div class="msg">아직 입력된 스코어가 없습니다.<br>경기 점수가 입력되는 대로 자동으로 집계됩니다.</div></div>`;
     return;
   }
   const pname = p => p ? (nick(p.player)?`${disp(p.player)} · ${nick(p.player)}`:disp(p.player)) : "—";
@@ -480,7 +518,7 @@ function renderSettle(s){
     </div>`;
 
   box.innerHTML=`
-    <div class="settle-head">총 <b>${s.totalPlayed}</b>매치 집계 · ${s.updatedAt} 기준</div>
+    <div class="settle-head">총 <b>${s.totalPlayed}</b>매치 집계</div>
     <div class="tcards">
       ${teamCard(s.awayTeam, s.team.away, 's', aWin>hWin)}
       <div class="tvs">VS</div>
