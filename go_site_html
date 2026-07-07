@@ -176,8 +176,8 @@
 <body>
 <div class="wrap">
   <header>
-    <div class="eyebrow"> IN&OUT 월례회</div>
-    <h1 id="title">IN&OUT_A <span class="vs">vs</span> IN&OUT_B</h1>
+    <div class="eyebrow"> Go-Matchup</div>
+    <h1 id="title">Samsung <span class="vs">vs</span> Mobis</h1>
     <div class="meta" id="metaLine"></div>
   </header>
 
