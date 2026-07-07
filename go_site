@@ -25,9 +25,9 @@
  */
 
 const CONFIG = {
-  SHEET_NAME: '260705_GoTennis_vs_T.M.J',   // ← 실제 시트 탭 이름으로 변경
-  HOME_TEAM: 'GoTennis',
-  AWAY_TEAM: 'T.M.J',
+  SHEET_NAME: '260712_Samsung_vs_Mobis',   // ← 실제 시트 탭 이름으로 변경
+  HOME_TEAM: 'Samsung',
+  AWAY_TEAM: 'Mobis',
   CACHE_SECONDS: 0,                  // 0이면 캐시 미사용(항상 실시간). 동시 접속이 많으면 20~30으로
 
   /**
@@ -36,8 +36,8 @@ const CONFIG = {
    * 기본값: 1번째 팀 블록 = C열(이름)/D열(성별), 2번째 팀 블록 = J열(이름)/K열(성별), 9~25행.
    */
   GENDER_ROSTER_BLOCKS: [
-    { nameCol: 3, genderCol: 4, startRow: 9, endRow: 16 },   // C열, D열
-    { nameCol: 10, genderCol: 11, startRow: 9, endRow: 16 }  // J열, K열
+    { nameCol: 3, genderCol: 4, startRow: 9, endRow: 24 },   // C열, D열
+    { nameCol: 10, genderCol: 11, startRow: 9, endRow: 24 }  // J열, K열
   ],
 
   /**
@@ -56,7 +56,7 @@ const CONFIG = {
 function doGet() {
   return HtmlService.createHtmlOutputFromFile('index')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no')
-    .setTitle('26-07, GoTennis vs T.M.J');
+    .setTitle('26-07, Samsung vs Mobis');
 }
 
 /** 클라이언트(HTML)에서 google.script.run 으로 호출 */
