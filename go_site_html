@@ -177,7 +177,7 @@
 <div class="wrap">
   <header>
     <div class="eyebrow"> Go-Matchup</div>
-    <h1 id="title">Samsung <span class="vs">vs</span> Mobis</h1>
+    <h1 id="title"><?= homeTeam ?> <span class="vs">vs</span> <?= awayTeam ?></h1>
     <div class="meta" id="metaLine"></div>
   </header>
 
