@@ -3,6 +3,7 @@
  * From KaKao 26.06.07
  * Revised by Seev.GJ, 26.06.13
  * Revised again 26.07.07 — 시간표 필터 / 남복·여복·혼복 구분 / 실시간 정산
+ * Revised again 26.07.11 — 팀명을 시트 셀 값에서 자동으로 읽어오도록 개선
  *
  * [최초 1회 설정]
  *  1. 대진표 스프레드시트를 Google Sheets로 엽니다 (엑셀이면 구글시트로 변환/업로드).
@@ -16,8 +17,11 @@
  *          - 2번째 팀 블록: J열=이름, K열=성별 ("남"/"여"), 9~25행
  *          이 규칙과 다르게 시트를 바꾸면 아래 CONFIG.GENDER_ROSTER_BLOCKS 를 맞춰서 수정하세요.
  *          명단에 없는 선수나 예외가 있으면 CONFIG.GENDERS 에 수동으로 추가해도 됩니다.
+ *  3.5. -> 팀명(Samsung / Mobis 등)은 CONFIG.TEAM_NAME_CELLS 에 지정한 셀 값에서 자동으로
+ *          읽어옵니다. 해당 셀이 비어있으면 CONFIG.HOME_TEAM / CONFIG.AWAY_TEAM 값을
+ *          그대로 사용합니다(fallback). 실제 시트에서 팀명이 적힌 셀 주소로 맞춰 수정하세요.
  *  4. index.html 파일을 추가하고 제공된 HTML을 붙여넣습니다.
- *  4.1. -> Index.html line 163에 있는 title을 수정해야 app 사이트에 반영됨.
+ *  4.1. -> Index.html의 <title> 은 doGet() 에서 setTitle() 로 자동 반영됩니다.
  *  5. 배포 > 새 배포 > 유형: 웹 앱
  *       - 실행: 나(소유자)
  *       - 액세스 권한: 조직 내 모든 사용자 (또는 링크가 있는 모든 사용자)
@@ -25,9 +29,24 @@
  */
 
 const CONFIG = {
-  SHEET_NAME: '260712_Samsung_vs_Mobis',   // ← 실제 시트 탭 이름으로 변경
-  HOME_TEAM: 'Samsung',
-  AWAY_TEAM: 'Mobis',
+  SHEET_NAME: '260705_GoTennis_vs_T.M.J',   // ← 실제 시트 탭 이름으로 변경
+
+  // 아래 두 값은 TEAM_NAME_CELLS 로 지정한 셀이 비어있을 때만 사용되는 fallback 값입니다.
+  HOME_TEAM: '   ',
+  AWAY_TEAM: '   ',
+
+  /**
+   * 팀명이 적힌 셀 위치. A1 표기법으로 지정합니다 (예: 'C6').
+   * 여기 지정한 셀에 값이 있으면 위 HOME_TEAM/AWAY_TEAM 대신 이 셀 값을 사용합니다.
+   * ⚠️ 기존 코드 관례상 HOME_TEAM(=Samsung 쪽)은 화면 "왼쪽"(away 슬롯)에,
+   *    AWAY_TEAM(=Mobis 쪽)은 화면 "오른쪽"(home 슬롯)에 표시됩니다.
+   *    화면에서 좌우가 바뀌어 보이면 아래 home/away 셀 주소를 서로 바꿔주세요.
+   */
+  TEAM_NAME_CELLS: {
+    home: 'C7',   // ← Samsung(왼쪽 표시) 팀명이 적힌 실제 셀로 수정
+    away: 'J7'    // ← Mobis(오른쪽 표시) 팀명이 적힌 실제 셀로 수정
+  },
+
   CACHE_SECONDS: 0,                  // 0이면 캐시 미사용(항상 실시간). 동시 접속이 많으면 20~30으로
 
   /**
@@ -36,8 +55,8 @@ const CONFIG = {
    * 기본값: 1번째 팀 블록 = C열(이름)/D열(성별), 2번째 팀 블록 = J열(이름)/K열(성별), 9~25행.
    */
   GENDER_ROSTER_BLOCKS: [
-    { nameCol: 3, genderCol: 4, startRow: 9, endRow: 24 },   // C열, D열
-    { nameCol: 10, genderCol: 11, startRow: 9, endRow: 24 }  // J열, K열
+    { nameCol: 3, genderCol: 4, startRow: 9, endRow: 32 },   // C열, D열
+    { nameCol: 10, genderCol: 11, startRow: 9, endRow: 32 }  // J열, K열
   ],
 
   /**
@@ -54,9 +73,14 @@ const CONFIG = {
 };
 
 function doGet() {
-  return HtmlService.createHtmlOutputFromFile('index')
+  const teams = getTeamNames_();
+  const tmpl = HtmlService.createTemplateFromFile('index');
+  tmpl.awayTeam = teams.away;  // 화면 왼쪽(Samsung 자리)에 표시될 팀명
+  tmpl.homeTeam = teams.home;  // 화면 오른쪽(Mobis 자리)에 표시될 팀명
+
+  return tmpl.evaluate()
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no')
-    .setTitle('26-07, Samsung vs Mobis');
+    .setTitle(`${teams.away} vs ${teams.home}`);
 }
 
 /** 클라이언트(HTML)에서 google.script.run 으로 호출 */
@@ -81,6 +105,25 @@ function getFullData() {
   const tournament = parseSheet_();
   const standings = getStandings(tournament);
   return { tournament: tournament, standings: standings };
+}
+
+/**
+ * CONFIG.TEAM_NAME_CELLS 에 지정된 셀에서 팀명을 읽어온다.
+ * 셀 값이 비어있으면 CONFIG.HOME_TEAM / CONFIG.AWAY_TEAM 을 fallback 으로 사용.
+ * @param {Sheet} [sheet] 이미 열어둔 시트 객체가 있으면 재사용(중복 조회 방지).
+ */
+function getTeamNames_(sheet) {
+  sheet = sheet || SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_NAME);
+  const norm = v => (v === null || v === undefined) ? '' : String(v).trim();
+  const cells = CONFIG.TEAM_NAME_CELLS || {};
+
+  const home = (sheet && cells.home) ? norm(sheet.getRange(cells.home).getValue()) : '';
+  const away = (sheet && cells.away) ? norm(sheet.getRange(cells.away).getValue()) : '';
+
+  return {
+    home: home || CONFIG.HOME_TEAM,
+    away: away || CONFIG.AWAY_TEAM
+  };
 }
 
 /**
@@ -187,6 +230,7 @@ function parseSheet_() {
   const values = sheet.getDataRange().getValues();
   const norm = v => (v === null || v === undefined) ? '' : String(v).trim();
   const genderMap = buildGenderMap_(sheet); // 참가자 명단(C7:O25)에서 성별 자동 로드
+  const teams = getTeamNames_(sheet);       // 팀명 셀에서 자동 로드 (비어있으면 CONFIG fallback)
 
   // 메타(날짜/장소) 추출
   let meta = { date: '', venue: '' };
@@ -265,14 +309,32 @@ function parseSheet_() {
     }
   }
 
-  // 정렬: 시간 → 코트
+  // 시간 문자열("14:00~14:30" 등)의 시작 시각을 분(minute) 단위로 변환 (정렬/순번 부여용)
+  const startMinutes_ = t => {
+    const m = String(t).match(/^(\d{1,2}):(\d{2})/);
+    return m ? (Number(m[1]) * 60 + Number(m[2])) : 0;
+  };
+
+  // 실제 시작 시각 순으로 고유 시간대를 정렬해 "1타임(14:00~14:30)" 형태의 라벨을 부여
+  const uniqueTimes = [...new Set(matches.map(m => m.time))]
+    .sort((a, b) => startMinutes_(a) - startMinutes_(b));
+  const timeLabelMap = {};
+  uniqueTimes.forEach((t, i) => { timeLabelMap[t] = `${i + 1}타임(${t})`; });
+
+  matches.forEach(m => {
+    m.timeRaw = m.time;              // 원본 시간 문자열("14:00~14:30")은 보존
+    m.time = timeLabelMap[m.time];   // 화면 표시용: "1타임(14:00~14:30)"
+  });
+
+  // 정렬: 시작 시각(timeRaw 기준) → 코트
   matches.sort((a, b) =>
-    a.time.localeCompare(b.time) || a.court.localeCompare(b.court, undefined, { numeric: true }));
+    startMinutes_(a.timeRaw) - startMinutes_(b.timeRaw) ||
+    a.court.localeCompare(b.court, undefined, { numeric: true }));
 
   return {
     meta: meta,
-    homeTeam: CONFIG.AWAY_TEAM,
-    awayTeam: CONFIG.HOME_TEAM,
+    homeTeam: teams.away,   // 화면 "오른쪽(k)" 슬롯 — 기존 CONFIG.AWAY_TEAM 자리
+    awayTeam: teams.home,   // 화면 "왼쪽(s)" 슬롯 — 기존 CONFIG.HOME_TEAM 자리
     matches: matches,
     updatedAt: Utilities.formatDate(new Date(), 'Asia/Seoul', 'HH:mm:ss')
   };
@@ -348,8 +410,8 @@ function getStandings(preloadedData) {
     .sort((x, y) => y[key] - x[key] || y.scored - x.scored || y.win - x.win)[0] || null;
 
   return {
-    homeTeam: CONFIG.AWAY_TEAM,
-    awayTeam: CONFIG.HOME_TEAM,
+    homeTeam: data.homeTeam,   // parseSheet_() 결과와 동일한 팀명을 그대로 사용
+    awayTeam: data.awayTeam,
     team: team,
     topWinner: { home: bestBy('home', 'win'), away: bestBy('away', 'win') },
     topScorer: { home: bestBy('home', 'scored'), away: bestBy('away', 'scored') },
@@ -369,4 +431,9 @@ function debugGenderMap() {
   const sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
   if (!sheet) throw new Error('시트를 찾을 수 없습니다: ' + CONFIG.SHEET_NAME);
   Logger.log(JSON.stringify(buildGenderMap_(sheet), null, 2));
+}
+
+/** 디버그용: 에디터에서 실행해 팀명이 셀에서 잘 읽히는지 확인 */
+function debugTeamNames() {
+  Logger.log(JSON.stringify(getTeamNames_(), null, 2));
 }
