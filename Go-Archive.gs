@@ -195,7 +195,7 @@ function parseMatchHistory_() {
       ready: !!siteUrl
     };
 
-    if (d && d.getTime() < today.getTime()) {
+    if (d && d.getTime() <= today.getTime()) {
       history.push(item);
     } else {
       upcoming.push(item);
