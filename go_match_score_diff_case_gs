@@ -1,0 +1,351 @@
+/**
+ * Go-Matchup | 2026-11-20 GoTennis MT 2nd
+ * Google Sheets ↔ Apps Script 웹 앱 (Code.gs)
+ *
+ * 연결: https://docs.google.com/spreadsheets/d/1RqxhIws5o0_OI5jmKwgMZn07pkvx8WLSgS2U2m_dFRU/
+ * 시트: 261120_GoTennis_MT_2nd
+ *
+ * [실제 엑셀 양식]
+ * - 팀명 C7(왼쪽), J7(오른쪽)
+ * - 명단 C9:D27(왼쪽), J9:K27(오른쪽)
+ * - 시간 C열 / 코트 헤더 D열, K열 / Point D열, K열
+ * - 왼쪽 코트블록: 선수 E,F / 점수 G,H / 상대선수 I,J
+ * - 오른쪽 코트블록: 선수 L,M / 점수 N,O / 상대선수 P,Q
+ * - 경기 35:42, 46:53, 57:64행 (6코트 × 8타임 = 48경기)
+ *
+ * [점수 규칙]
+ * - 승리팀에만 해당 경기의 Point를 지급, 무승부는 양팀 0P.
+ * - 승리팀 복식 출전 선수 각각에게 경기 Point 전액을 지급.
+ * - 팀 우승은 누적 Point 기준.
+ * - 기존 MVP(최다 승리/최다 득점=게임 스코어 합계) 기준 유지.
+ * - 자동 주기 갱신 없음. 접속/새로고침/사이트에서 점수 저장 시 갱신.
+ */
+
+const CONFIG = {
+  SPREADSHEET_ID: '1RqxhIws5o0_OI5jmKwgMZn07pkvx8WLSgS2U2m_dFRU',
+  SHEET_NAME: '261120_GoTennis_MT_2nd',
+  TEAM_NAME_CELLS: { left: 'C7', right: 'J7' },
+  DEFAULT_TEAMS: { left: 'Team 서영', right: 'Team 나영' },
+  ROSTER_BLOCKS: [
+    { side: 'away', nameCol: 3, genderCol: 4, startRow: 9, endRow: 27 },
+    { side: 'home', nameCol: 10, genderCol: 11, startRow: 9, endRow: 27 }
+  ],
+  // 수동 보정 필요 시: { '선수이름': 'M', '선수이름2': 'W' }
+  GENDERS: {},
+  MAX_GAME_SCORE: 6,
+  TIMEZONE: 'Asia/Seoul'
+};
+
+function getSheet_() {
+  const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+  const sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
+  if (!sheet) throw new Error('시트 이름을 확인해 주세요: ' + CONFIG.SHEET_NAME);
+  return sheet;
+}
+
+function norm_(value) {
+  return value == null ? '' : String(value).trim();
+}
+
+function getTeamNames_(sheet) {
+  sheet = sheet || getSheet_();
+  const left = norm_(sheet.getRange(CONFIG.TEAM_NAME_CELLS.left).getDisplayValue());
+  const right = norm_(sheet.getRange(CONFIG.TEAM_NAME_CELLS.right).getDisplayValue());
+  // 기존 index.html 규약: away=화면 왼쪽, home=화면 오른쪽
+  return {
+    away: left || CONFIG.DEFAULT_TEAMS.left,
+    home: right || CONFIG.DEFAULT_TEAMS.right
+  };
+}
+
+function doGet() {
+  const teams = getTeamNames_();
+  // Apps Script의 HTML 파일 이름을 'index'로 생성해야 합니다.
+  const tpl = HtmlService.createTemplateFromFile('index');
+  tpl.awayTeam = teams.away;
+  tpl.homeTeam = teams.home;
+  return tpl.evaluate()
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no')
+    .setTitle(`${teams.away} vs ${teams.home}`);
+}
+
+function getTournamentData() {
+  return parseSheet_();
+}
+
+function getFullData() {
+  const tournament = parseSheet_();
+  return { tournament: tournament, standings: getStandings(tournament) };
+}
+
+/** C9:D27 / J9:K27 → 참가자 목록 및 성별 맵 */
+function buildRoster_(values) {
+  const roster = { away: [], home: [] };
+  const genderMap = {};
+  CONFIG.ROSTER_BLOCKS.forEach(block => {
+    for (let row = block.startRow - 1; row <= block.endRow - 1; row++) {
+      const cells = values[row] || [];
+      const name = norm_(cells[block.nameCol - 1]);
+      const gender = norm_(cells[block.genderCol - 1]);
+      if (!name) continue;
+      if (!roster[block.side].includes(name)) roster[block.side].push(name);
+      if (gender === '남' || /^m(ale)?$/i.test(gender)) genderMap[name] = 'M';
+      if (gender === '여' || /^(w|f)(emale)?$/i.test(gender)) genderMap[name] = 'W';
+    }
+  });
+  Object.keys(CONFIG.GENDERS).forEach(name => { genderMap[name] = CONFIG.GENDERS[name]; });
+  return { roster: roster, genderMap: genderMap };
+}
+
+function genderOf_(player, map) {
+  if (!player) return null;
+  if (map[player]) return map[player];
+  const base = player.split('_')[0];
+  return map[base] || null;
+}
+
+function classifyMatch_(awayPlayers, homePlayers, genderMap) {
+  const genders = awayPlayers.concat(homePlayers).map(name => genderOf_(name, genderMap));
+  if (genders.some(g => !g)) return 'unknown';
+  if (genders.every(g => g === 'M')) return 'M';
+  if (genders.every(g => g === 'W')) return 'W';
+  return 'X'; // 남녀가 섞여 있으면 기존 코드와 동일하게 '혼복'
+}
+
+/** 분리 스코어(6|4)와 한 칸 통합 스코어('6:4' 등) 모두 읽음. */
+function parseScore_(awayCell, homeCell) {
+  const validScore = v => {
+    const s = norm_(v);
+    if (!/^\d+$/.test(s)) return null;
+    const n = Number(s);
+    return Number.isInteger(n) && n >= 0 && n <= CONFIG.MAX_GAME_SCORE ? n : null;
+  };
+  const a = validScore(awayCell);
+  const h = validScore(homeCell);
+  if (a !== null && h !== null) return { away: a, home: h, played: true };
+
+  const combined = [awayCell, homeCell];
+  for (const raw of combined) {
+    const m = norm_(raw).match(/^(\d{1,2})\s*(?:[:\-/]|vs)\s*(\d{1,2})$/i);
+    if (!m) continue;
+    const sa = validScore(m[1]);
+    const sh = validScore(m[2]);
+    if (sa !== null && sh !== null) return { away: sa, home: sh, played: true };
+  }
+  return { played: false };
+}
+
+function startMinutes_(time) {
+  const m = norm_(time).match(/^(\d{1,2}):(\d{2})/);
+  return m ? Number(m[1]) * 60 + Number(m[2]) : 0;
+}
+
+/** 표의 Court 헤더/시간행을 찾아 48개 경기와 배점·편성·스코어를 파싱. */
+function parseSheet_() {
+  const sheet = getSheet_();
+  const values = sheet.getDataRange().getDisplayValues();
+  const cell = (row, col) => norm_((values[row] || [])[col]);
+  const teams = getTeamNames_(sheet);
+  const { roster, genderMap } = buildRoster_(values);
+
+  const meta = { date: '', venue: '' };
+  values.forEach(row => row.forEach(v => {
+    const s = norm_(v);
+    const date = s.match(/Date\s*&\s*Time\s*:\s*(.+)$/i);
+    const venue = s.match(/\bCourt\s*:\s*(.+)$/i);
+    if (date) meta.date = date[1].trim();
+    if (venue) meta.venue = venue[1].trim();
+  }));
+
+  const courtRe = /^Court\s*\d+$/i;
+  const timeRe = /^\d{1,2}:\d{2}\s*[~～]\s*\d{1,2}:\d{2}$/;
+  const matches = [];
+
+  for (let r = 0; r < values.length; r++) {
+    const courts = [];
+    for (let c = 0; c < (values[r] || []).length; c++) {
+      const name = cell(r, c).replace(/\s+/g, ' ');
+      // Point가 바로 아래에 있는 실제 코트 헤더만 처리
+      if (courtRe.test(name) && /^point$/i.test(cell(r + 1, c))) {
+        courts.push({ col: c, name: name });
+      }
+    }
+    if (!courts.length) continue;
+
+    for (let rr = r + 2; rr < values.length; rr++) {
+      if ((values[rr] || []).some(x => courtRe.test(norm_(x).replace(/\s+/g, ' ')))) break;
+      const time = cell(rr, 2); // C열 고정
+      if (!timeRe.test(time)) continue;
+
+      courts.forEach(court => {
+        const p = court.col; // D(0-based 3) 또는 K(0-based 10) = Point 열
+        const pointRaw = cell(rr, p);
+        const pointNumber = pointRaw === '' ? NaN : Number(pointRaw);
+        const pointValid = Number.isFinite(pointNumber) && pointNumber >= 0;
+        const away = [cell(rr, p + 1), cell(rr, p + 2)]; // E:F 또는 L:M
+        const home = [cell(rr, p + 5), cell(rr, p + 6)]; // I:J 또는 P:Q
+        const ready = away.every(Boolean) && home.every(Boolean) && pointValid;
+
+        matches.push({
+          id: `m${rr + 1}_${p + 1}`,
+          timeRaw: time.replace(/\s+/g, ''),
+          time: time.replace(/\s+/g, ''),
+          court: court.name,
+          point: pointValid ? pointNumber : 0,
+          pointValid: pointValid,
+          away: away,
+          home: home,
+          ready: ready,
+          type: classifyMatch_(away, home, genderMap),
+          score: parseScore_(cell(rr, p + 3), cell(rr, p + 4)), // G:H 또는 N:O
+          cells: { row: rr + 1, awayCol: p + 4, homeCol: p + 5 }
+        });
+      });
+    }
+  }
+
+  const times = [...new Set(matches.map(m => m.timeRaw))]
+    .sort((a, b) => startMinutes_(a) - startMinutes_(b));
+  const timeLabelMap = {};
+  times.forEach((t, i) => { timeLabelMap[t] = `${i + 1}타임(${t})`; });
+  matches.forEach(m => { m.time = timeLabelMap[m.timeRaw]; });
+  matches.sort((a, b) =>
+    startMinutes_(a.timeRaw) - startMinutes_(b.timeRaw) ||
+    a.court.localeCompare(b.court, undefined, { numeric: true })
+  );
+
+  return {
+    meta: meta,
+    homeTeam: teams.home, // 화면 오른쪽
+    awayTeam: teams.away, // 화면 왼쪽
+    roster: roster,
+    matches: matches,
+    totalPointAvailable: matches.reduce((sum, m) => sum + (m.pointValid ? m.point : 0), 0),
+    updatedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'HH:mm:ss')
+  };
+}
+
+/**
+ * 웹사이트 점수 저장 → 해당 경기의 G/H 또는 N/O 셀만 수정.
+ * 클라이언트가 행/열을 직접 지정하지 못하게 하고, 서버가 경기 ID를 재검증합니다.
+ */
+function saveScore(payload) {
+  if (!payload || !payload.id) throw new Error('경기 식별자가 없습니다. 새로고침 후 다시 입력해 주세요.');
+  const toScore = v => {
+    if (typeof v === 'number') return v;
+    if (typeof v === 'string' && /^\d+$/.test(v)) return Number(v);
+    return NaN;
+  };
+  const a = toScore(payload.away);
+  const h = toScore(payload.home);
+  if (![a, h].every(v => Number.isInteger(v) && v >= 0 && v <= CONFIG.MAX_GAME_SCORE)) {
+    throw new Error(`스코어는 0~${CONFIG.MAX_GAME_SCORE} 사이의 정수여야 합니다.`);
+  }
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const data = parseSheet_();
+    const match = data.matches.find(m => m.id === String(payload.id));
+    if (!match) throw new Error('시트에서 해당 경기를 찾을 수 없습니다. 새로고침해 주세요.');
+    if (!match.ready) throw new Error('양 팀 선수 4명과 Point가 입력되어야 스코어를 저장할 수 있습니다.');
+
+    const sheet = getSheet_();
+    sheet.getRange(match.cells.row, match.cells.awayCol, 1, 2).setValues([[a, h]]);
+    SpreadsheetApp.flush();
+    return getFullData();
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * 정산 규칙:
+ *  - W/L/D는 기존 경기 스코어 비교 그대로 유지.
+ *  - points: 승리한 팀에만 경기 point 지급 (무승부 0P).
+ *  - 출전 선수 두 명 각각 승리 시 경기 point 전액 지급.
+ *  - scored: 기존 최다 득점 기준, 매치 내 게임 스코어의 개인별 누적합.
+ */
+function getStandings(preloadedData) {
+  const data = preloadedData || parseSheet_();
+  const init = () => ({ played: 0, win: 0, loss: 0, draw: 0, points: 0 });
+  const team = { home: init(), away: init() };
+  const stats = {};
+
+  const touch = (name, side) => {
+    // 같은 이름이 양팀에 존재하더라도 팀 단위로 독립 집계
+    const key = `${side}\u0001${name}`;
+    if (!stats[key]) {
+      stats[key] = {
+        player: name, team: side,
+        win: 0, loss: 0, draw: 0, played: 0, scored: 0, points: 0
+      };
+    }
+    return stats[key];
+  };
+
+  data.matches.forEach(m => {
+    if (!m.score || !m.score.played) return;
+    const a = m.score.away, h = m.score.home;
+    const awayWin = a > h, homeWin = h > a;
+    const awardedPoint = m.pointValid ? m.point : 0;
+    team.away.played++;
+    team.home.played++;
+
+    if (awayWin) {
+      team.away.win++; team.home.loss++;
+      team.away.points += awardedPoint;
+    } else if (homeWin) {
+      team.home.win++; team.away.loss++;
+      team.home.points += awardedPoint;
+    } else {
+      team.away.draw++; team.home.draw++;
+    }
+
+    const credit = (names, side, ownScore, didWin, didLose) => {
+      names.forEach(name => {
+        if (!name) return;
+        const st = touch(name, side);
+        st.played++;
+        st.scored += ownScore;
+        if (didWin) {
+          st.win++;
+          st.points += awardedPoint;
+        } else if (didLose) {
+          st.loss++;
+        } else {
+          st.draw++;
+        }
+      });
+    };
+    credit(m.away, 'away', a, awayWin, homeWin);
+    credit(m.home, 'home', h, homeWin, awayWin);
+  });
+
+  const players = Object.values(stats);
+  // 기존 최다 승리/최다 득점 MVP 정렬 및 동률 처리 순서 그대로 유지.
+  const bestBy = (side, key) => players
+    .filter(p => p.team === side && p.played > 0)
+    .sort((x, y) => y[key] - x[key] || y.scored - x.scored || y.win - x.win)[0] || null;
+
+  return {
+    homeTeam: data.homeTeam,
+    awayTeam: data.awayTeam,
+    team: team,
+    topWinner: { home: bestBy('home', 'win'), away: bestBy('away', 'win') },
+    topScorer: { home: bestBy('home', 'scored'), away: bestBy('away', 'scored') },
+    totalPlayed: team.home.played,
+    updatedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'HH:mm:ss')
+  };
+}
+
+function debugParse() {
+  Logger.log(JSON.stringify(parseSheet_(), null, 2));
+}
+function debugStandings() {
+  Logger.log(JSON.stringify(getStandings(), null, 2));
+}
+function debugRoster() {
+  const sheet = getSheet_();
+  Logger.log(JSON.stringify(buildRoster_(sheet.getDataRange().getDisplayValues()), null, 2));
+}
